@@ -1,13 +1,12 @@
 import asyncio
 import sys
 
-# --- THE NUCLEAR FIX ---
-# We force this policy to apply globally, immediately upon file load.
+# Windows Fix (Keep this!)
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-# -----------------------
 
 from fastapi import FastAPI
+from fastapi.responses import Response # <--- NEW IMPORT
 from playwright.async_api import async_playwright
 
 app = FastAPI()
@@ -25,11 +24,15 @@ async def generate_pdf(url: str):
             
             await page.goto(url)
             
-            pdf = await page.pdf(format="A4", print_background=True)
+            # Snap the PDF
+            pdf_bytes = await page.pdf(format="A4", print_background=True)
             
             await browser.close()
             
-            return {"status": "success", "pdf_size_bytes": len(pdf)}
+            # --- THE CHANGE ---
+            # Instead of returning JSON text, we return the raw file bytes.
+            # media_type="application/pdf" tells the browser "This is a PDF, please display it."
+            return Response(content=pdf_bytes, media_type="application/pdf")
             
     except Exception as e:
         return {"status": "error", "message": str(e)}
