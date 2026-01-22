@@ -1,6 +1,6 @@
 # 1. Start with the official Python image that includes Playwright browsers
 # This saves us from having to install Chrome manually!
-FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.57.0-jammy
 
 # 2. Set the working directory inside the container
 WORKDIR /app
