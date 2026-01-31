@@ -116,18 +116,31 @@ async def root():
 async def generate_pdf(request: PDFRequest):
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            # ADDED: simpler args for stability
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox"] # Safer for Docker
+            )
             context = await browser.new_context(
                 viewport={"width": 1920, "height": 1080},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
             )
             page = await context.new_page()
 
+            # ADDED: 60-second timeout (default is 30s, which is too short for Netflix on free tier)
+            page.set_default_timeout(60000) 
+
             if request.emulate_screen:
                 await page.emulate_media(media="screen")
 
             if request.source_type == "url":
-                await page.goto(request.source, wait_until="networkidle")
+                # Changed to 'domcontentloaded' - faster than 'networkidle'
+                # 'networkidle' waits for EVERY image to load, which causes timeouts on Netflix
+                await page.goto(request.source, wait_until="domcontentloaded") 
+                
+                # Optional: Wait just 2 extra seconds for some JS to finish
+                await page.wait_for_timeout(2000)
+                
             elif request.source_type == "html":
                 await page.set_content(request.source)
 
@@ -147,9 +160,9 @@ async def generate_pdf(request: PDFRequest):
             )
 
     except Exception as e:
-        print(f"Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
+        print(f"CRITICAL ERROR: {e}") # This prints to Render Logs
+        # Return the actual error to the UI so you can see it
+        raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
