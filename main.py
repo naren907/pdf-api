@@ -1,79 +1,75 @@
 import asyncio
 import sys
-from typing import Optional
 from fastapi import FastAPI, Response, HTTPException
+from fastapi.staticfiles import StaticFiles # <--- NEW: To serve your UI
 from pydantic import BaseModel
 from playwright.async_api import async_playwright
 
-# --- WINDOWS FIX ---
+# Windows Fix
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-# -------------------
 
-app = FastAPI(title="Pixel-Perfect PDF API")
+app = FastAPI()
 
-# --- DATA MODELS (The Interface) ---
-# This defines what the user MUST send us.
+# --- 1. SERVE THE UI (The Playground) ---
+# We tell FastAPI: "If someone asks for a file, look in the 'static' folder"
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 class PDFRequest(BaseModel):
-    source_type: str  # Must be "url" or "html"
-    source: str       # The link OR the raw HTML string
-    
-    # Options (with defaults)
-    format: str = "A4"          # "Letter", "Legal", etc.
-    landscape: bool = False
-    print_background: bool = True # Crucial for CSS colors
-    wait_for_network: bool = False # Wait for charts/images to load?
+    source_type: str = "url"
+    source: str
+    format: str = "A4"
+    print_background: bool = True
+    # New option to trick the website
+    emulate_screen: bool = True 
 
 @app.get("/")
 async def root():
-    return {"message": "PDF API v1 is ready. Use POST /v1/pdf"}
+    # Redirect root to our new fancy UI
+    from starlette.responses import RedirectResponse
+    return RedirectResponse(url="/static/index.html")
 
 @app.post("/v1/pdf")
 async def generate_pdf(request: PDFRequest):
-    """
-    Professional Endpoint: Takes JSON, returns a downloadable PDF.
-    """
     try:
         async with async_playwright() as p:
-            # 1. Launch Browser
             browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
+            context = await browser.new_context(
+                # TRICK 1: Set a huge viewport so grids don't collapse
+                viewport={"width": 1920, "height": 1080},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            )
+            page = await context.new_page()
 
-            # 2. Input Handling (The Switch)
+            # TRICK 2: Force "Screen" media type (Ignore Print CSS)
+            if request.emulate_screen:
+                await page.emulate_media(media="screen")
+
+            # Go to content
             if request.source_type == "url":
-                # For Dashboards/Legal: Go to the website
-                # "networkidle" means "wait until network traffic stops" (good for charts)
-                wait_strategy = "networkidle" if request.wait_for_network else "load"
-                await page.goto(request.source, wait_until=wait_strategy)
-                
+                await page.goto(request.source, wait_until="networkidle")
             elif request.source_type == "html":
-                # For Invoices/Receipts: Load raw HTML
                 await page.set_content(request.source)
-            
-            else:
-                raise HTTPException(status_code=400, detail="source_type must be 'url' or 'html'")
 
-            # 3. Generate PDF (The Render)
+            # Generate PDF
             pdf_bytes = await page.pdf(
                 format=request.format,
-                landscape=request.landscape,
-                print_background=request.print_background
+                print_background=request.print_background,
+                # TRICK 3: Scale it slightly so A4 doesn't cut off wide content
+                scale=0.8,
+                margin={"top": "1cm", "bottom": "1cm", "left": "1cm", "right": "1cm"}
             )
             
             await browser.close()
 
-            # 4. Return as Download (The Fix)
             return Response(
                 content=pdf_bytes,
                 media_type="application/pdf",
-                headers={
-                    # This forces the browser to download the file named "output.pdf"
-                    "Content-Disposition": "attachment; filename=document.pdf"
-                }
+                headers={"Content-Disposition": "attachment; filename=output.pdf"}
             )
 
     except Exception as e:
-        print(f"Error: {str(e)}") # Log to console
+        print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PixelPerfect API Dashboard</title>
+    <style>
+        body { font-family: -apple-system, system-ui, sans-serif; background: #f4f6f8; display: flex; justify-content: center; padding-top: 50px; }
+        .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); width: 500px; }
+        h1 { color: #1a1a1a; margin-bottom: 20px; font-size: 24px; text-align: center; }
+        label { display: block; margin-top: 15px; font-weight: 600; font-size: 14px; color: #555; }
+        input[type="text"], select { width: 100%; padding: 12px; margin-top: 8px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        button { width: 100%; margin-top: 25px; padding: 14px; background: #2563eb; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button:hover { background: #1d4ed8; }
+        button:disabled { background: #93c5fd; cursor: not-allowed; }
+        .status { margin-top: 15px; text-align: center; font-size: 14px; color: #666; height: 20px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h1>📄 PDF Generator</h1>
+    
+    <label>Website URL</label>
+    <input type="text" id="urlInput" placeholder="https://www.netflix.com" value="https://www.netflix.com">
+
+    <label>Format</label>
+    <select id="formatInput">
+        <option value="A4">A4</option>
+        <option value="Letter">Letter</option>
+    </select>
+
+    <button onclick="generatePDF()" id="btn">Generate PDF</button>
+    <div class="status" id="status"></div>
+</div>
+
+<script>
+    async function generatePDF() {
+        const btn = document.getElementById('btn');
+        const status = document.getElementById('status');
+        const url = document.getElementById('urlInput').value;
+        
+        btn.disabled = true;
+        btn.innerText = "Processing...";
+        status.innerText = "Starting headless browser...";
+
+        try {
+            const response = await fetch('/v1/pdf', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    source_type: "url",
+                    source: url,
+                    format: document.getElementById('formatInput').value,
+                    emulate_screen: true // <--- THE MAGIC FIX
+                })
+            });
+
+            if (!response.ok) throw new Error("Generation failed");
+
+            // Convert response to a blob and download it
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = "result.pdf";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            
+            status.innerText = "Done! Downloading...";
+        } catch (error) {
+            status.innerText = "Error: " + error.message;
+            alert("Something went wrong. Check the console.");
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "Generate PDF";
+        }
+    }
+</script>
+
+</body>
+</html>
